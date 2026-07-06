@@ -5,9 +5,6 @@ const { Sequelize } = require("sequelize");
 let options = {
   multipleStatements: true,
   connectTimeout: 30000,
-  connectionLimit: 10,
-  waitForConnections: true,
-  queueLimit: 0,
 };
 let poolOption = {
   max: 10,
@@ -57,7 +54,6 @@ if (process.env.STAGE == "production") {
     host: "207.180.216.86", //
     dialect: "mysql",
     dialectOptions: options,
-    pool: poolOption,
     pool: poolOption, timezone: "+05:30"
   });
 
@@ -65,7 +61,6 @@ if (process.env.STAGE == "production") {
     host: "207.180.216.86",
     dialect: "mysql",
     dialectOptions: options,
-    pool: poolOption,
     pool: poolOption, timezone: "+05:30"
   });
 
@@ -73,7 +68,6 @@ if (process.env.STAGE == "production") {
     host: "207.180.216.86",
     dialect: "mysql",
     dialectOptions: options,
-    pool: poolOption,
     pool: poolOption, timezone: "+05:30"
   });
 }

@@ -56,34 +56,25 @@ app.use(nocache());
 // Initialize CORS
 corsOptions = {
   origin: [
-    "https://oakter.mscorpres.net",
-    "https://dev.mscorpres.net",
-    "https://oakter.mscorpres.co.in",
-    "https://ims.mscorpres.co.in",
-    "https://oakter.vendor.mscorpres.co.in",
-    "https://dev.mscorpres.co.in",
+    "https://c25.prod.mscorpres.com",
+    "https://c25.test.mscorpres.net"
   ],
   optionsSuccessStatus: 200, // some legacy browsers (IE11, various SmartTVs) choke on 204
-  methods: ["GET,HEAD,PUT,PATCH,POST,DELETE"],
+  methods: ["GET", "HEAD", "PUT", "PATCH", "POST", "DELETE"],
 };
 app.use(cors(corsOptions));
 
 app.get("/", function (req, res) {
-  return res.send("<h2>WELCOME : socket2</h2>");
+  return res.send("<h2>WELCOME : C25 Socket Server</h2>");
 });
 
-// catch 404 and forward to error handler
-/*app.use(function (req, res, next) {
-  return res.status(404).send(require("./helper/backendProcess/error_404").error_404());
-});*/
+
 
 // error handler
 app.use(function (err, req, res, next) {
-  // set locals, only providing error in development
   res.locals.message = err.message;
   res.locals.error = req.app.get("env") === "development" ? err : {};
 
-  // render the error page
   res.status(err.status || 500);
   res.render("error");
 });
@@ -93,24 +84,19 @@ app.use("/files", require("./helper/backendProcess/TruncateDownloadedFiles"));
 const port = process.env.PORT;
 
 //with http://
-const node_server = https
-  .createServer(https_options, app, () => {
-    timeout = 6000000; // Miliseconds
-  })
-  .listen(port);
+const node_server = https.createServer(https_options, app).listen(port);
+node_server.setTimeout(6000000); // Miliseconds
 console.log(`server started at port - ${port}`);
-//sendAdminMail()
 
 var io = require("socket.io")(node_server, {
-  pingTimeout: 6000000,
-  pingInterval: 6000000,
+  pingTimeout: 60000,
+  pingInterval: 25000,
   transports: ["websocket", "polling"],
   upgrade: false,
   cors: {
-    origin: "*",
+    origin: corsOptions.origin,
     allowedHeaders: ["token", "Content-Type", "page_id", "type"],
   },
 });
 
-// app.set("socketio", io);
 require("./helper/sockets_fun").myFunction(io);
