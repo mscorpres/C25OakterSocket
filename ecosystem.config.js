@@ -1,7 +1,7 @@
 module.exports = {
 	apps: [
 		{
-			name: "oakterc25Socket",
+			name: "C25Socket",
 			script: "app.js",
 			watch: ["./routes"],
 			watch_delay: 500,
