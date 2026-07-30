@@ -132,7 +132,7 @@ exports.tran_in = async (date, uid, emit_notifications, notificationId, socket, 
           currency = "USD";
         }
 
-        let inQty = parseInt(element.qty) + parseInt(element.other_qty);
+        let inQty = parseFloat(element.qty) + parseFloat(element.other_qty);
 
         let hsncode = "";
         if (element.in_hsn_code !== "" && element.in_hsn_code !== "--") {
