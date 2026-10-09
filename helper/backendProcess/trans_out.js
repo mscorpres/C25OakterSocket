@@ -13,200 +13,290 @@ function byDate(a, b) {
   return d2 - d1;
 }
 
-exports.tran_out = async (date, uid, emit_notifications, notificationId, socket, io, branch) => {
-  const validation = new Validator(
-    { date: date },
-    {
-      date: "required",
-    }
-  );
 
-  let req_date = date;
-  token_res = await verifyToken(`${socket.handshake.auth.token}`);
-  let user_id = token_res.crn_id;
+
+exports.tran_out = async (
+  date,
+  uid,
+  emit_notifications,
+  notificationId,
+  socket,
+  io,
+  branch
+) => {
+  const validation = new Validator({ date }, { date: "required" });
+
   if (validation.fails()) {
     return { code: 500, msg: "Please Select Date" };
   }
 
-  try {
-    const data = date;
-    var pattern = /([0-9]{2})-([0-9]{2})-([0-9]{4}) - ([0-9]{2})-([0-9]{2})-([0-9]{4})/gi;
-    var pattern1 = /([0-9]{2})-([0-9]{2})-([0-9]{4})-([0-9]{2})-([0-9]{2})-([0-9]{4})/gi;
-    if (pattern.test(data) || pattern1.test(data)) {
-      const date = data.match(/([0-9]{2})-([0-9]{2})-([0-9]{4})/gi);
+  let token_res = await verifyToken(`${socket.handshake.auth.token}`);
+  let user_id = token_res.crn_id;
+  let req_date = date;
 
-      let date1 = moment(date[0], "DD-MM-YYYY").format("YYYY-MM-DD");
-      let date2 = moment(date[1], "DD-MM-YYYY").format("YYYY-MM-DD");
-      io.to(user_id).emit("download_start_detail", {
-        title: "Transaction IN",
-        details: date,
-        notificationId: notificationId,
-        status: "pending",
-        detailStatus: true,
-        total: false,
-        type: "file",
-      });
-      let finalResult = await invtDB.query(
-        "SELECT qty , loc_name , in_po_rate , c_part_no , c_new_part_no,  c_name , components_id , units_name , in_vendor_name , ven_name , jw_transaction_id , jw_challan_id , rm_location.insert_date, rm_location.loc_out AS loc_out , out_transaction_id , user_name , any_remark, rejection_any_remark FROM rm_location LEFT JOIN ven_basic_detail ON rm_location.in_vendor_name  = ven_basic_detail.ven_register_id LEFT JOIN components ON rm_location.components_id = components.component_key LEFT JOIN units ON components.c_uom = units.units_id LEFT JOIN location_main ON rm_location.loc_in = location_main.location_key LEFT JOIN admin_login ON rm_location.insert_by = admin_login.CustID WHERE components.c_type = 'R' AND components.c_is_enabled = 'Y' AND DATE_FORMAT(rm_location.insert_date, '%Y-%m-%d') BETWEEN :date1 AND :date2 AND (rm_location.trans_type = 'ISSUE' OR rm_location.trans_type = 'JOBWORK') AND rm_location.company_branch = :branch ORDER BY rm_location.insert_date DESC",
+  try {
+    const dateMatch = date.match(/(\d{2}-\d{2}-\d{4})/g);
+    if (!dateMatch || dateMatch.length !== 2) {
+      return { code: 500, msg: "Invalid Date Format" };
+    }
+
+    const date1 = moment(dateMatch[0], "DD-MM-YYYY").format("YYYY-MM-DD");
+    const date2 = moment(dateMatch[1], "DD-MM-YYYY").format("YYYY-MM-DD");
+
+    io.to(user_id).emit("download_start_detail", {
+      title: "Transaction OUT",
+      details: date,
+      notificationId,
+      status: "pending",
+      detailStatus: true,
+      total: false,
+      type: "file",
+    });
+
+    const finalResult = await invtDB.query(
+      `
+      SELECT 
+        rl.ID,
+        c.c_name,
+        c.c_part_no,
+        c.c_new_part_no,
+        u.units_name,
+        lm.loc_name,
+        loc2.loc_name AS loc_out,
+        al.user_name,
+        rl.insert_date,
+        rl.trans_type,
+        rl.trans_mode,
+        rl.components_id,
+        rl.in_vendor_name,
+        rl.out_transaction_id,
+        rl.jw_transaction_id,
+        rl.jw_challan_id,
+        rl.qty,
+        rl.in_po_rate,
+        rl.exchange_rate,
+        rl.any_remark,
+        rl.rejection_any_remark,
+        rl.in_hsn_code,
+        vb.ven_name,
+        vb.ven_register_id
+
+      FROM rm_location rl
+
+      LEFT JOIN components c 
+        ON rl.components_id = c.component_key
+
+      LEFT JOIN units u 
+        ON c.c_uom = u.units_id
+
+      LEFT JOIN location_main lm 
+        ON rl.loc_in = lm.location_key
+
+      LEFT JOIN location_main loc2 
+        ON rl.loc_out = loc2.location_key
+
+      LEFT JOIN admin_login al 
+        ON rl.insert_by = al.CustID
+
+      LEFT JOIN ven_basic_detail vb 
+        ON vb.ven_register_id = rl.in_vendor_name
+
+      WHERE 
+        c.c_type = 'R'
+        AND c.c_is_enabled = 'Y'
+        AND rl.company_branch = :branch
+        AND DATE_FORMAT(rl.insert_date, '%Y-%m-%d') BETWEEN :date1 AND :date2
+        AND rl.trans_type IN ('ISSUE','JOBWORK','CONSUMPTION')
+
+        AND (
+              rl.trans_type <> 'TRANSFER'
+              OR rl.trans_mode = 'return'
+            )
+
+        AND (
+              rl.trans_type <> 'CONSUMPTION'
+              OR (
+                    rl.jw_transaction_id != '--'
+                    AND rl.trans_mode = 'default'
+                 )
+            )
+
+      ORDER BY rl.insert_date DESC
+      `,
+      {
+        replacements: { date1, date2, branch },
+        type: invtDB.QueryTypes.SELECT,
+      }
+    );
+
+    if (!finalResult.length) {
+      return { code: 500, message: "Transaction not found" };
+    }
+
+    // ==========================================
+    // 1. Fetch Requested By logic
+    // ==========================================
+    const txnPairs = finalResult.map((r) => ({
+      out_transaction_id: r.out_transaction_id,
+      components_id: r.components_id,
+    }));
+
+    const uniquePairs = [
+      ...new Map(
+        txnPairs.map((item) => [
+          `${item.out_transaction_id}_${item.components_id}`,
+          item,
+        ])
+      ).values(),
+    ];
+
+    let requestMap = new Map();
+
+    if (uniquePairs.length) {
+      const requestData = await invtDB.query(
+        `
+        SELECT 
+          mr.approval_transaction,
+          mr.components_key,
+          al.user_name
+        FROM material_request mr
+        LEFT JOIN admin_login al 
+          ON al.CustID = mr.inserted_by
+        WHERE (mr.approval_transaction, mr.components_key) IN (
+          ${uniquePairs.map(() => "(?, ?)").join(",")}
+        )
+        `,
         {
-          replacements: { date1: date1, date2: date2, branch: branch },
+          replacements: uniquePairs.flatMap((obj) => [
+            obj.out_transaction_id,
+            obj.components_id,
+          ]),
           type: invtDB.QueryTypes.SELECT,
         }
       );
 
-      if (finalResult.length == 0) {
-        return { code: 500, message: "Transaction not found", status: "error" };
-      }
+      requestData.forEach((r) => {
+        requestMap.set(
+          `${r.approval_transaction}_${r.components_key}`,
+          r.user_name
+        );
+      });
+    }
 
-      let result = [];
-      let count = 0;
-
+    // ==========================================
+    // 2. Map the Final Output Result with WVR logic
+    // ==========================================
+    const result = await Promise.all(
       finalResult.map(async (item) => {
-        // if (item == null) {
-        // 	item = "N/A";
-        // }
-        // For HSN
-        let hsn_code;
+        const vendor =
+          item.in_vendor_name === "--"
+            ? "--"
+            : `${item.ven_name ?? "--"} / ${item.in_vendor_name}`;
 
-        let stmt3 = await invtDB.query("SELECT `in_hsn_code` FROM `rm_location` WHERE `components_id`= :component AND (`in_hsn_code` != '--' AND `in_hsn_code` != '') ORDER BY `ID` DESC LIMIT 1", {
-          replacements: { component: item.components_id },
-          type: invtDB.QueryTypes.SELECT,
-        });
-        if (stmt3.length > 0) {
-          hsn_code = stmt3[0].in_hsn_code;
-        }
-        // END HSN
+        const reqKey = `${item.out_transaction_id}_${item.components_id}`;
+        const requestedBy = requestMap.get(reqKey) || "--";
 
-        // VENDOR
-        let vendor;
-        if (item.in_vendor_name == "--") {
-          vendor = "--";
+        // Apply Q1 Rate Logic (Weighted Purchase Rate / Jobwork Rate)
+        let rate = "--";
+        
+        if (item.trans_type === "JOBWORK" || (item.jw_transaction_id && item.jw_transaction_id !== "--" && item.jw_transaction_id !== "")) {
+          // q1 logic applied for JOBWORK: use in_po_rate 
+          let po_rate = parseFloat(item.in_po_rate) || 0;
+          let exchange = parseFloat(item.exchange_rate) || 1;
+          rate = (po_rate * exchange).toFixed(4);
         } else {
-          vendor = item.ven_name + " / " + item.in_vendor_name;
-        }
-
-        // For JW Order
-        let jw_order_no, jw_challan_no, rate;
-        if (item.jw_transaction_id !== "" && item.jw_transaction_id !== "--") {
-          jw_order_no = item.jw_transaction_id;
-          jw_challan_no = item.jw_challan_id;
-          rate = item.in_po_rate;
-        } else {
-          jw_order_no = item.jw_transaction_id;
-          jw_challan_no = item.jw_challan_id;
-
-          let stmt4 = await invtDB.query("SELECT `in_po_rate` FROM `rm_location` WHERE `components_id`= :component AND (`in_po_rate` != '--' AND `in_po_rate` != '') AND `trans_type` = 'INWARD' AND `company_branch` = :branch ORDER BY `ID` DESC LIMIT 1", {
-            replacements: { component: item.components_id, branch: branch },
-            type: invtDB.QueryTypes.SELECT,
-          });
-          if (stmt4.length > 0) {
-            rate = stmt4[0].in_po_rate;
-          } else {
-            rate = "--";
+          // CONSUMPTION or ISSUE -> Calculate WVR
+          try {
+            const wvr = await require("../../utils/newAvgRate").newWeightedAverageRate(
+              item.components_id,
+              moment(item.insert_date).format("YYYY-MM-DD HH:mm:ss"),
+              item.ID
+            );
+            rate = Number(wvr).toFixed(4);
+          } catch (err) {
+            console.error(`WVR calculation failed for ID ${item.ID}:`, err.message);
+            rate = "0.0000";
           }
         }
-        // END JW Order
-        let location;
-        let stmt5 = await invtDB.query("SELECT loc_name FROM `location_main` WHERE `location_key` = :location", {
-          replacements: { location: item.loc_out },
-          type: invtDB.QueryTypes.SELECT,
-        });
-        if (stmt5.length > 0) {
-          location = stmt5[0].loc_name;
-        } else {
-          location = "--";
-        }
 
-        // FETCH REQUEST REQUESTED BY
-        let requested_by;
-        if (item.out_transaction_id !== "" && item.out_transaction_id !== "--") {
-          let stmt6 = await invtDB.query("SELECT `admin_login`.`user_name` AS `requested_by_user` FROM `material_request` LEFT JOIN `admin_login` ON `admin_login`.`CustID` = `material_request`.`inserted_by` WHERE `material_request`.`approval_transaction` = :approval_id AND `material_request`.`components_key` = :component", {
-            replacements: { approval_id: item.out_transaction_id, component: item.components_id },
-            type: invtDB.QueryTypes.SELECT,
-          });
-          requested_by = stmt6.length > 0 ? stmt6[0].requested_by_user : "--";
-        } else {
-          requested_by = "--";
-        }
-
-        result.push({
+        return {
           DATE: moment(item.insert_date).format("DD-MM-YYYY"),
           COMPONENT: item.c_name,
-          PART: item.c_part_no, CAT_PART_CODE: item.c_new_part_no,
-          HSN: hsn_code,
-          FROMLOCATION: location,
-          TOLOCATION: item.loc_name,
+          PART: item.c_part_no,
+          CAT_PART_CODE: item.c_new_part_no,
+          HSN: item.in_hsn_code ?? "--",
+          FROMLOCATION: item.loc_out ?? "--",
+          TOLOCATION: item.loc_name ?? "--",
           OUTQTY: `${item.qty}`,
           UNIT: item.units_name,
           RATE: rate,
-          TRANSACTION: item.out_transaction_id,
+          TRANSACTION: item.out_transaction_id ?? "--",
           VENDOR: vendor,
-          JWORDER_CHALLANNO: jw_challan_no + " / " + jw_order_no,
-          REQUESTED_BY: requested_by,
+          JWORDER_CHALLANNO: `${item.jw_challan_id ?? "--"} / ${item.jw_transaction_id ?? "--"}`,
+          REQUESTED_BY: requestedBy,
           ADDED_BY: item.user_name,
-          COMMENT: item.any_remark == null ? item.rejection_any_remark : item.any_remark,
-        });
-        count++;
-        if (count == finalResult.length) {
-          result.sort(byDate);
+          COMMENT:
+            item.any_remark == null
+              ? item.rejection_any_remark
+              : item.any_remark,
+        };
+      })
+    );
 
-          const worksheet = xlsx.utils.json_to_sheet(result);
-          const workbook = xlsx.utils.book_new();
-          xlsx.utils.book_append_sheet(workbook, worksheet, "Transaction OUT");
-          // buffer we use to handle the big file
-          xlsx.write(workbook, { bookType: "csv", type: "buffer" });
-          let randKey = Math.floor(Math.random() * (999 - 100 + 1)) + 100;
-          let fileGenarateName = "./files/excel/TRANOUT" + randKey + ".xlsx";
+    const worksheet = xlsx.utils.json_to_sheet(result);
+    const workbook = xlsx.utils.book_new();
+    xlsx.utils.book_append_sheet(workbook, worksheet, "Transaction OUT");
 
-          xlsx.writeFile(workbook, fileGenarateName);
+    const randKey = Math.floor(Math.random() * 900) + 100;
+    const filePath = `./files/excel/TRANOUT${randKey}.xlsx`;
 
+    xlsx.writeFile(workbook, filePath);
 
-          
+    await otherDB.query(
+      `
+      UPDATE user_files_req 
+      SET status = 'complete',
+          other_data = :other
+      WHERE user_id = :uid
+        AND req_code = 'TRANOUT'
+        AND req_date = :req_date
+      `,
+      {
+        replacements: {
+          uid,
+          req_date,
+          other: JSON.stringify({
+            fileName: `TRANOUT${randKey}.xlsx`,
+            fileUrl: filePath,
+          }),
+        },
+        type: otherDB.QueryTypes.UPDATE,
+      }
+    );
 
-          let stmt = await otherDB.query("UPDATE `user_files_req` SET `status` = 'complete', `other_data` = :other WHERE `user_id`= :uid AND `req_code` = 'TRANOUT' AND req_date = :req_date", {
-            replacements: {
-              uid: uid,
-              req_date: req_date,
-              other: JSON.stringify({
-                fileName: `TRANOUT${randKey}.xlsx`,
-                fileUrl: fileGenarateName,
-                fileBuffer: Buffer.from(fileGenarateName, "base64"),
-              }),
-            },
-            type: otherDB.QueryTypes.UPDATE,
-          });
-          emit_notifications(notificationId);
-			
-			// SEND USER MAIL
-          let user = await invtDB.query("SELECT `Email_ID`,`user_name` from `admin_login` WHERE `CustID`= :CustID", {
-            replacements: {
-              CustID: uid,
-            },
-            type: invtDB.QueryTypes.SELECT,
-          });
-          let userEmail = user[0].Email_ID;
-          let attachment = [
-            {
-              filename: "TRANSACTION OUT REPORT",
-              content: fs.readFileSync(fileGenarateName),
-            },
-          ];
-          await helper.sendMail(userEmail, "", "TRANSACTION OUT REPORT [File Ready for download] Ref:" + helper.randomNumber(99999,999999), "Trans OUT", attachment);
-          //END MAIL
-        }
-      });
-    }
+    emit_notifications(notificationId);
+
+    return { code: 200, message: "File Generated Successfully" };
   } catch (err) {
-    let stmt = await otherDB.query("UPDATE `user_files_req` SET `status` = 'failed' WHERE `reactNotificationId`= :uid AND `req_code` = 'TRANOUT' AND req_date = :req_date", {
-      replacements: {
-        uid: notificationId,
-        req_date: req_date,
-      },
-      type: otherDB.QueryTypes.UPDATE,
-    });
+    console.error(err);
+    await otherDB.query(
+      `
+      UPDATE user_files_req 
+      SET status = 'failed'
+      WHERE reactNotificationId = :nid
+        AND req_code = 'TRANOUT'
+        AND req_date = :req_date
+      `,
+      {
+        replacements: { nid: notificationId, req_date },
+        type: otherDB.QueryTypes.UPDATE,
+      }
+    );
+
     emit_notifications(notificationId);
   }
 };
+
 function verifyToken(token) {
   return new Promise((resolve, reject) => {
     if (!token) {
