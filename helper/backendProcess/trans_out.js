@@ -292,7 +292,6 @@ exports.tran_out = async (
         type: otherDB.QueryTypes.UPDATE,
       }
     );
-
     emit_notifications(notificationId);
   }
 };
