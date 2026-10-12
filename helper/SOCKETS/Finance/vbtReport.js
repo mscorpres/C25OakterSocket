@@ -12,24 +12,26 @@ const helper = require("../../helper");
 const CHUNK_SIZE = 10_000;
 
 const VBT_TYPE_MAP = {
-  VBT01: "Purchase",
-  VBT04: "Purchase",
-  VBT05: "Purchase",
+  VBT01: "PurchaseC25",
+  VBT04: "PurchaseC25",
+  VBT05: "PurchaseC25",
   VBT02: "Purchase-Services",
   VBT06: "Purchase-Services",
   VBT03: "Purchase-Import(Goods)",
   VBT07: "RCM-Invoice",
+  VBT08: "Sales-Return",
+  VBT09: "FG-Purchase",
 };
 
 
 const DEFAULT_CONSIGNEE = {
-  name: "Riot Labz Private Limited (Alwar)",
-  addressLine1: "B-36, Matasya Industrial Area,",
-  addressLine2: "Alwar-301030 ( Rajsthan)",
-  pin: "301030",
-  state: "Rajsthan",
+  name: "Riot Labz Private Limited (Noida)",
+  addressLine1: "C-25 Hosiery Complex Phase 2",
+  addressLine2: "Noida, Gautambuddha Nagar",
+  pin: "201305",
+  state: "Uttar Pradesh",
   country: "India",
-  gst: "08AAHCR1005Q1Z6",
+  gst: "09AAHCR1005Q1Z4",
 };
 
 function verifyToken(token) {
@@ -72,7 +74,7 @@ function buildMainQuery(wise, req) {
   `;
 
   const notDeleted = `tally_vbt.vbt_status != 'DE'`;
-  const order = `ORDER BY tally_vbt.effective_date DESC`;
+  const order = `ORDER BY tally_vbt.vbt_key ASC`;
   const typeFilter =
     req.vbt_type !== "ALL" ? `AND tally_vbt.vbt_type = :vbt_type` : "";
 
@@ -380,14 +382,10 @@ function transformRow(row, minMap, venMap, ccMap, poMap, jwMap, shipMap) {
     "Consignee Name": consigneeName
       ? String(consigneeName).replaceAll("<br>", " ")
       : DEFAULT_CONSIGNEE.name,
-    "Shipping add": shippingAddress
-      ? String(shippingAddress).replaceAll("<br>", " ")
-      : DEFAULT_CONSIGNEE.addressLine1,
-    "Shipping add 1": shippingAddress1
-      ? String(shippingAddress1).replaceAll("<br>", " ")
-      : DEFAULT_CONSIGNEE.addressLine2,
-    "Pincode.": shippingPin || DEFAULT_CONSIGNEE.pin,
-    "State.": shippingState || DEFAULT_CONSIGNEE.state,
+    "Shipping add": DEFAULT_CONSIGNEE.addressLine1,
+    "Shipping add 1": DEFAULT_CONSIGNEE.addressLine2,
+    "Pincode.": DEFAULT_CONSIGNEE.pin,
+    "State.": DEFAULT_CONSIGNEE.state,
     "Country.": shippingCountry || DEFAULT_CONSIGNEE.country,
     "GSTIN.": shippingGst || DEFAULT_CONSIGNEE.gst,
     "Supplier Invoice No": row.vbt_invoice_no,
@@ -398,7 +396,7 @@ function transformRow(row, minMap, venMap, ccMap, poMap, jwMap, shipMap) {
     Description3: "",
     Description4: "",
     Description5: "",
-    Godown: "RM001_Alwar",
+    Godown: "GDRM001_C25",
     "Invoice Qty": row.vbt_bill_qty,
     "Min Qty": row.vbt_inqty,
     Rate: row.vbt_inrate,
