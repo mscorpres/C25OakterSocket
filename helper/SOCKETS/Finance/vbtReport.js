@@ -25,7 +25,7 @@ const VBT_TYPE_MAP = {
 
 
 const DEFAULT_CONSIGNEE = {
-  name: "Riot Labz Private Limited (Noida)",
+  name: "Riot Labz Private Limited - (FY 26-27)",
   addressLine1: "C-25 Hosiery Complex Phase 2",
   addressLine2: "Noida, Gautambuddha Nagar",
   pin: "201305",
