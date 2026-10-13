@@ -74,7 +74,7 @@ function buildMainQuery(wise, req) {
   `;
 
   const notDeleted = `tally_vbt.vbt_status != 'DE'`;
-  const order = `ORDER BY tally_vbt.vbt_key ASC`;
+  const order = `ORDER BY tally_vbt.effective_date ASC`;
   const typeFilter =
     req.vbt_type !== "ALL" ? `AND tally_vbt.vbt_type = :vbt_type` : "";
 
@@ -379,9 +379,7 @@ function transformRow(row, minMap, venMap, ccMap, poMap, jwMap, shipMap) {
     State: venState || "",
     Country: "",
     GSTIN: venGSTIN || "",
-    "Consignee Name": consigneeName
-      ? String(consigneeName).replaceAll("<br>", " ")
-      : DEFAULT_CONSIGNEE.name,
+    "Consignee Name": DEFAULT_CONSIGNEE.name,
     "Shipping add": DEFAULT_CONSIGNEE.addressLine1,
     "Shipping add 1": DEFAULT_CONSIGNEE.addressLine2,
     "Pincode.": DEFAULT_CONSIGNEE.pin,
