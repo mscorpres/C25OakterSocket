@@ -142,7 +142,8 @@ exports.tran_in = async (date, uid, emit_notifications, notificationId, socket, 
         }
 
         finalResult.push({
-          DATE: moment(element.insert_date, "YYYY-MM-DD HH:mm:ss").format("DD-MM-YYYY HH:mm:ss"),
+          CHALLAN_DATE: element.challan_date ? element.challan_date : "--",
+          MIN_DATE: moment(element.insert_date, "YYYY-MM-DD HH:mm:ss").format("DD-MM-YYYY HH:mm:ss"),
           COMPONENT: element.c_name,
           PART: element.c_part_no, CAT_PART_CODE: element.c_new_part_no,
           HSNCODE: hsncode,
