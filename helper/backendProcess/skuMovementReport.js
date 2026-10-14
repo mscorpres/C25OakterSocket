@@ -6,7 +6,7 @@ const XLSX = require("xlsx");
 const Validator = require("validatorjs");
 
 const { invtDB } = require("../../config/db/connection");
-const { getWeightedSKURate } = require("../utils");
+const { fgWeightedAverageRate } = require("../newFGavgRate");
 
 
 /**
@@ -197,7 +197,7 @@ exports.skuMovementReport = async function skuMovementReport(params) {
 
       const rowProductKey = item.row_product_key || item.fgout_pro_apr_sku || item.mfg_pro_apr_sku;
       const txWeightedRate = rowProductKey
-        ? await getWeightedSKURate(
+        ? await fgWeightedAverageRate(
             rowProductKey,
             moment(txDate, "DD-MM-YYYY HH:mm:ss").format("YYYY-MM-DD HH:mm:ss")
           )
