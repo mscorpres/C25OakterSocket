@@ -62,9 +62,9 @@ exports.allComp = function (io, socket) {
         fileName = JSON.parse(check_data[0].other_data).fileName;
       } else {
         let file_branch = "";
-        // A21 R1 store LOCATION
+        // C21 R1 store LOCATION
         if (socket.handshake.auth.companyBranch == "BROAKTRC25") {
-          file_branch = "A21";
+          file_branch = "C21";
         }
         // B29 R1 store LOCATION
         if (socket.handshake.auth.companyBranch == "BRMSC029") {
