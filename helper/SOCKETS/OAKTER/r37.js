@@ -168,23 +168,69 @@ exports.r37 = async (io, socket) => {
             // //////////////////Closing
 
             // Query to get total issued quantity ever (without date filter) for this JW transaction and component, to calculate cumulative pending_qty
-            const stmt_total_iss_ever = await invtDB.query(
-              "SELECT COALESCE(SUM(`qty`+`other_qty`), 0) AS `total_issued_rm` FROM `rm_location` WHERE `jw_transaction_id` = :transaction_id AND `components_id` = :component_id AND trans_type = 'JOBWORK'",
-              {
-                replacements: { component_id: stmt_comp_item.jw_bom_part, transaction_id: mainStmt[jwIdIndex].jw_jw_transaction },
-                type: invtDB.QueryTypes.SELECT,
-              }
-            );
-            let total_issue_ever = 0;
-            if (stmt_total_iss_ever.length > 0) {
-              total_issue_ever = stmt_total_iss_ever[0].total_issued_rm;
-            }
-            // Added: Calculate required_qty based on jw_po_order_qty * bom_qty for this specific JW transaction and component
-            const required_qty = mainStmt[jwIdIndex].jw_po_order_qty * stmt_comp_item.bom_qty;
+            const [
+              [total_sfg_consump_ever],
+              [total_iss_ever],
+              [total_ret_ever],
+              [total_consump_ever],
+            ] = await Promise.all([
+              invtDB.query(
+                "SELECT COALESCE(SUM(qty+other_qty), 0) AS total_sfg_consump FROM rm_location WHERE jw_transaction_id = :transaction_id AND components_id = :component_id AND trans_type = 'SFG-CONSUMPTION' AND trans_mode = 'default'",
+                {
+                  replacements: {
+                    component_id: stmt_comp_item.jw_bom_part,
+                    transaction_id: mainStmt[jwIdIndex].jw_jw_transaction,
+                  },
+                  type: invtDB.QueryTypes.SELECT,
+                }
+              ),
+              invtDB.query(
+                "SELECT COALESCE(SUM(qty+other_qty), 0) AS total_issued_rm FROM rm_location WHERE jw_transaction_id = :transaction_id AND components_id = :component_id AND trans_type = 'JOBWORK'",
+                {
+                  replacements: {
+                    component_id: stmt_comp_item.jw_bom_part,
+                    transaction_id: mainStmt[jwIdIndex].jw_jw_transaction,
+                  },
+                  type: invtDB.QueryTypes.SELECT,
+                }
+              ),
+              invtDB.query(
+                "SELECT COALESCE(SUM(qty+other_qty), 0) AS total_returned_rm FROM rm_location WHERE trans_type = 'TRANSFER' AND in_jw_transaction_id = :transaction_id AND components_id = :component_id AND trans_mode = 'return'",
+                {
+                  replacements: {
+                    component_id: stmt_comp_item.jw_bom_part,
+                    transaction_id: mainStmt[jwIdIndex].jw_jw_transaction,
+                  },
+                  type: invtDB.QueryTypes.SELECT,
+                }
+              ),
+              invtDB.query(
+                "SELECT COALESCE(SUM(qty+other_qty), 0) AS total_consumption FROM rm_location WHERE jw_transaction_id = :transaction_id AND components_id = :component_id AND trans_type = 'CONSUMPTION' AND trans_mode = 'default'",
+                {
+                  replacements: {
+                    component_id: stmt_comp_item.jw_bom_part,
+                    transaction_id: mainStmt[jwIdIndex].jw_jw_transaction,
+                  },
+                  type: invtDB.QueryTypes.SELECT,
+                }
+              ),
+            ]);
 
-            // Added: Calculate pending_qty as required_qty - total_issue_ever (similar to the first code's pending_qty = required - issued)
-            // If positive, it's pending to issue; if negative, it's excess issued (short/excess logic)
-            const pending_qty = helper.number(required_qty - total_issue_ever).toFixed(2);
+            const jw_consump_qty = helper.number(
+              total_consump_ever.total_consumption >
+                total_iss_ever.total_issued_rm - total_ret_ever.total_returned_rm
+                ? total_iss_ever.total_issued_rm - total_ret_ever.total_returned_rm
+                : total_consump_ever.total_consumption
+            );
+
+            const pending_qty = helper
+              .number(
+                total_iss_ever.total_issued_rm -
+                  (total_sfg_consump_ever.total_sfg_consump +
+                    total_ret_ever.total_returned_rm +
+                    jw_consump_qty)
+              )
+              .toFixed(2);
 
             const stmt_total_iss_for_openeing = await invtDB.query(
               "SELECT COALESCE(SUM(`qty`+`other_qty`), 0) AS `total_issued_rm` FROM `rm_location` WHERE `jw_transaction_id` = :transaction_id AND `components_id` = :component_id AND trans_type = 'JOBWORK' AND DATE_FORMAT(`insert_date`,'%Y-%m-%d') < :date1",
