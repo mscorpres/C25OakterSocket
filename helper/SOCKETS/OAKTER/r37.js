@@ -184,65 +184,111 @@ exports.r37 = async (io, socket) => {
 
             // Added: Calculate pending_qty as required_qty - total_issue_ever (similar to the first code's pending_qty = required - issued)
             // If positive, it's pending to issue; if negative, it's excess issued (short/excess logic)
-            const pending_qty = helper.number(required_qty - total_issue_ever).toFixed(2);
+            const short_access_qty = helper.number(required_qty - total_issue_ever).toFixed(2);
 
-            const stmt_total_iss_for_openeing = await invtDB.query(
-              "SELECT COALESCE(SUM(`qty`+`other_qty`), 0) AS `total_issued_rm` FROM `rm_location` WHERE `jw_transaction_id` = :transaction_id AND `components_id` = :component_id AND trans_type = 'JOBWORK' AND DATE_FORMAT(`insert_date`,'%Y-%m-%d') < :date1",
-              {
-                replacements: { component_id: stmt_comp_item.jw_bom_part, transaction_id: mainStmt[jwIdIndex].jw_jw_transaction, date1: fromdate },
-                type: invtDB.QueryTypes.SELECT,
-              }
+            // Closing QTY calculated using p_with_jw logic up to todate
+            const [
+              [close_sfg_consump],
+              [close_iss],
+              [close_ret],
+              [close_consump],
+            ] = await Promise.all([
+              invtDB.query(
+                "SELECT COALESCE(SUM(qty+other_qty), 0) AS total_sfg_consump FROM rm_location WHERE jw_transaction_id = :transaction_id AND components_id = :component_id AND trans_type = 'SFG-CONSUMPTION' AND trans_mode = 'default' AND DATE_FORMAT(`insert_date`,'%Y-%m-%d') <= :date2",
+                {
+                  replacements: { component_id: stmt_comp_item.jw_bom_part, transaction_id: mainStmt[jwIdIndex].jw_jw_transaction, date2: todate },
+                  type: invtDB.QueryTypes.SELECT,
+                }
+              ),
+              invtDB.query(
+                "SELECT COALESCE(SUM(qty+other_qty), 0) AS total_issued_rm FROM rm_location WHERE jw_transaction_id = :transaction_id AND components_id = :component_id AND trans_type = 'JOBWORK' AND DATE_FORMAT(`insert_date`,'%Y-%m-%d') <= :date2",
+                {
+                  replacements: { component_id: stmt_comp_item.jw_bom_part, transaction_id: mainStmt[jwIdIndex].jw_jw_transaction, date2: todate },
+                  type: invtDB.QueryTypes.SELECT,
+                }
+              ),
+              invtDB.query(
+                "SELECT COALESCE(SUM(qty+other_qty), 0) AS total_returned_rm FROM rm_location WHERE ((trans_type = 'TRANSFER' AND trans_mode = 'return') OR (trans_type = 'INWARD' AND trans_mode = 'return')) AND in_jw_transaction_id = :transaction_id AND components_id = :component_id AND DATE_FORMAT(`insert_date`,'%Y-%m-%d') <= :date2",
+                {
+                  replacements: { component_id: stmt_comp_item.jw_bom_part, transaction_id: mainStmt[jwIdIndex].jw_jw_transaction, date2: todate },
+                  type: invtDB.QueryTypes.SELECT,
+                }
+              ),
+              invtDB.query(
+                "SELECT COALESCE(SUM(qty+other_qty), 0) AS total_consumption FROM rm_location WHERE jw_transaction_id = :transaction_id AND components_id = :component_id AND trans_type = 'CONSUMPTION' AND trans_mode = 'default' AND DATE_FORMAT(`insert_date`,'%Y-%m-%d') <= :date2",
+                {
+                  replacements: { component_id: stmt_comp_item.jw_bom_part, transaction_id: mainStmt[jwIdIndex].jw_jw_transaction, date2: todate },
+                  type: invtDB.QueryTypes.SELECT,
+                }
+              ),
+            ]);
+
+            const close_effective_consump = helper.number(
+              close_consump.total_consumption > close_iss.total_issued_rm - close_ret.total_returned_rm
+                ? close_iss.total_issued_rm - close_ret.total_returned_rm
+                : close_consump.total_consumption
             );
 
-            let total_issue_qty_for_opening = 0;
-            if (stmt_total_iss_for_openeing.length > 0) {
-              total_issue_qty_for_opening = stmt_total_iss_for_openeing[0].total_issued_rm;
-            }
-
-            const stmt_total_consump_for_opening = await invtDB.query(
-              "SELECT COALESCE(SUM(`qty`+`other_qty`),0 ) AS `total_consumption` FROM `rm_location` WHERE `jw_transaction_id` = :transaction_id AND `components_id` = :component_id AND `trans_type` = 'SFG-CONSUMPTION' AND DATE_FORMAT(`insert_date`,'%Y-%m-%d') < :date1",
-              {
-                replacements: { component_id: stmt_comp_item.jw_bom_part, transaction_id: mainStmt[jwIdIndex].jw_jw_transaction, date1: fromdate },
-                type: invtDB.QueryTypes.SELECT,
-              }
+            const closing2 = Number(
+              helper.number(
+                close_iss.total_issued_rm -
+                  (close_sfg_consump.total_sfg_consump + close_ret.total_returned_rm + close_effective_consump)
+              ).toFixed(2)
             );
-            let total_consumption_value_for_opening = 0;
-            if (stmt_total_consump_for_opening.length > 0) {
-              total_consumption_value_for_opening = stmt_total_consump_for_opening[0].total_consumption;
-            }
 
-            const stmt_total_ret_for_opening = await invtDB.query(
-              "SELECT COALESCE(SUM(`qty`+`other_qty`),0 ) AS `total_returned_rm` FROM `rm_location` WHERE `trans_type` = 'INWARD' AND `in_jw_transaction_id` = :transaction_id AND `components_id` = :component_id AND trans_mode = 'return' AND DATE_FORMAT(`insert_date`,'%Y-%m-%d') < :date1",
-              {
-                replacements: { component_id: stmt_comp_item.jw_bom_part, transaction_id: mainStmt[jwIdIndex].jw_jw_transaction, date1: fromdate },
-                type: invtDB.QueryTypes.SELECT,
-              }
+            // Opening QTY calculated using p_with_jw logic prior to fromdate
+            const [
+              [open_sfg_consump],
+              [open_iss],
+              [open_ret],
+              [open_consump],
+            ] = await Promise.all([
+              invtDB.query(
+                "SELECT COALESCE(SUM(qty+other_qty), 0) AS total_sfg_consump FROM rm_location WHERE jw_transaction_id = :transaction_id AND components_id = :component_id AND trans_type = 'SFG-CONSUMPTION' AND trans_mode = 'default' AND DATE_FORMAT(`insert_date`,'%Y-%m-%d') < :date1",
+                {
+                  replacements: { component_id: stmt_comp_item.jw_bom_part, transaction_id: mainStmt[jwIdIndex].jw_jw_transaction, date1: fromdate },
+                  type: invtDB.QueryTypes.SELECT,
+                }
+              ),
+              invtDB.query(
+                "SELECT COALESCE(SUM(qty+other_qty), 0) AS total_issued_rm FROM rm_location WHERE jw_transaction_id = :transaction_id AND components_id = :component_id AND trans_type = 'JOBWORK' AND DATE_FORMAT(`insert_date`,'%Y-%m-%d') < :date1",
+                {
+                  replacements: { component_id: stmt_comp_item.jw_bom_part, transaction_id: mainStmt[jwIdIndex].jw_jw_transaction, date1: fromdate },
+                  type: invtDB.QueryTypes.SELECT,
+                }
+              ),
+              invtDB.query(
+                "SELECT COALESCE(SUM(qty+other_qty), 0) AS total_returned_rm FROM rm_location WHERE ((trans_type = 'TRANSFER' AND trans_mode = 'return') OR (trans_type = 'INWARD' AND trans_mode = 'return')) AND in_jw_transaction_id = :transaction_id AND components_id = :component_id AND DATE_FORMAT(`insert_date`,'%Y-%m-%d') < :date1",
+                {
+                  replacements: { component_id: stmt_comp_item.jw_bom_part, transaction_id: mainStmt[jwIdIndex].jw_jw_transaction, date1: fromdate },
+                  type: invtDB.QueryTypes.SELECT,
+                }
+              ),
+              invtDB.query(
+                "SELECT COALESCE(SUM(qty+other_qty), 0) AS total_consumption FROM rm_location WHERE jw_transaction_id = :transaction_id AND components_id = :component_id AND trans_type = 'CONSUMPTION' AND trans_mode = 'default' AND DATE_FORMAT(`insert_date`,'%Y-%m-%d') < :date1",
+                {
+                  replacements: { component_id: stmt_comp_item.jw_bom_part, transaction_id: mainStmt[jwIdIndex].jw_jw_transaction, date1: fromdate },
+                  type: invtDB.QueryTypes.SELECT,
+                }
+              ),
+            ]);
+
+            const open_effective_consump = helper.number(
+              open_consump.total_consumption > open_iss.total_issued_rm - open_ret.total_returned_rm
+                ? open_iss.total_issued_rm - open_ret.total_returned_rm
+                : open_consump.total_consumption
             );
-            let total_rm_return_qty_for_opening = 0;
-            if (stmt_total_ret_for_opening.length > 0) {
-              total_rm_return_qty_for_opening = stmt_total_ret_for_opening[0].total_returned_rm;
-            }
 
-            // const consump_qty_for_opening = helper.number(
-            //   total_consumption_value_for_opening > total_issue_qty_for_opening - total_rm_return_qty_for_opening
-            //     ? total_issue_qty_for_opening - total_rm_return_qty_for_opening
-            //     : total_consumption_value_for_opening
-            // );
-            const consump_qty_for_opening = helper.number(total_consumption_value_for_opening);
+            const opening2 = Number(
+              helper.number(
+                open_iss.total_issued_rm -
+                  (open_sfg_consump.total_sfg_consump + open_ret.total_returned_rm + open_effective_consump)
+              ).toFixed(2)
+            );
 
-            const opening2 = Number(helper.number(total_issue_qty_for_opening - consump_qty_for_opening - total_rm_return_qty_for_opening).toFixed(2));
-
-            // /////////////////Opening
-
-            // const consump_qty = helper.number(total_consumption_value > total_issue_qty - total_rm_return_qty ? total_issue_qty - total_rm_return_qty : total_consumption_value);
             const consump_qty = helper.number(total_consumption_value);
-
             const inward = Number(helper.number(total_issue_qty).toFixed(2));
             const outward = Number(helper.number(consump_qty + Number(total_rm_return_qty)).toFixed(2));
-            // const closing = Number(helper.number(total_issue_qty - consump_qty - total_rm_return_qty).toFixed(2));
-
-            // const opening = closing + outward - inward;
-            const closing2 = opening2 + inward - outward;
 
             // ////////////////// Rate
 
@@ -312,7 +358,7 @@ exports.r37 = async (io, socket) => {
               "Outward QTY": outward,
               "Outward Rate": avgOutward,
               "Outward Value": outward * avgOutward,
-              "Pending QTY": pending_qty, // Added: The pending_qty (or short/excess) per JW transaction and part
+              "Short/Access QTY": short_access_qty, // Added: The pending_qty (or short/excess) per JW transaction and part
               // closing: closing,
               "Closing QTY": closing2,
               "Closing Rate": closingRate,
