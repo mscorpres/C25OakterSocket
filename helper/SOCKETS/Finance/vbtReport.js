@@ -394,7 +394,7 @@ function transformRow(row, minMap, venMap, ccMap, poMap, jwMap, shipMap) {
     Description3: "",
     Description4: "",
     Description5: "",
-    Godown: ["VBT08", "VBT09"].includes(VBT_TYPE_MAP)
+    Godown: ["VBT08", "VBT09"].includes(row.vbt_type)
       ? "C25_FG001"
       : "GDRM001_C25",
     "Invoice Qty": row.vbt_bill_qty,
