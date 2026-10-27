@@ -19,8 +19,8 @@ const VBT_TYPE_MAP = {
   VBT06: "Purchase-Services",
   VBT03: "Purchase-Import(Goods)",
   VBT07: "RCM-Invoice",
-  VBT08: "Sales-Return",
-  VBT09: "FG-Purchase",
+  VBT08: "Purchase Sales-Return",
+  VBT09: "PurchaseC25",
 };
 
 
@@ -39,11 +39,11 @@ function verifyToken(token) {
     if (!token) {
       return reject(new Error("No token provided"));
     }
-  
+
     let cleanToken = token.startsWith("Bearer ")
       ? token.slice(7)
       : token;
-  
+
     jwt.verify(cleanToken, process.env.TOKEN_SECRET, (err, decoded) => {
       if (err) reject(err);
       else resolve(decoded);
@@ -289,8 +289,8 @@ function transformRow(row, minMap, venMap, ccMap, poMap, jwMap, shipMap) {
     row.po_number && row.po_number !== "--" && row.po_number !== ""
       ? row.po_number
       : minData?.mfgPoRef &&
-          minData.mfgPoRef !== "--" &&
-          String(minData.mfgPoRef).trim() !== ""
+        minData.mfgPoRef !== "--" &&
+        String(minData.mfgPoRef).trim() !== ""
         ? String(minData.mfgPoRef)
         : null;
   const po = poLookupKey ? poMap.get(poLookupKey) : null;
@@ -394,7 +394,9 @@ function transformRow(row, minMap, venMap, ccMap, poMap, jwMap, shipMap) {
     Description3: "",
     Description4: "",
     Description5: "",
-    Godown: "GDRM001_C25",
+    Godown: ["VBT08", "VBT09"].includes(VBT_TYPE_MAP)
+      ? "C25_FG001"
+      : "GDRM001_C25",
     "Invoice Qty": row.vbt_bill_qty,
     "Min Qty": row.vbt_inqty,
     Rate: row.vbt_inrate,
@@ -641,8 +643,8 @@ exports.vbtReport = async (io, socket) => {
         const dateDisplay =
           replacements.date1
             ? `${moment(replacements.date1).format("DD-MMM-YYYY")} to ${moment(
-                replacements.date2
-              ).format("DD-MMM-YYYY")}`
+              replacements.date2
+            ).format("DD-MMM-YYYY")}`
             : "";
 
         const ReportHeader = xlsx.utils.json_to_sheet(
