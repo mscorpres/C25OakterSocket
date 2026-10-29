@@ -81,7 +81,7 @@ function buildMainQuery(wise, req) {
     case "effectivewise":
       return `${base} WHERE (DATE_FORMAT(tally_vbt.effective_date,'%Y-%m-%d') BETWEEN :date1 AND :date2) AND ${notDeleted} ${typeFilter} ${order}`;
     case "datewise":
-      return `${base} WHERE (DATE_FORMAT(tally_vbt.insert_date,'%Y-%m-%d') BETWEEN :date1 AND :date2) AND ${notDeleted} ${typeFilter} ${order}`;
+      return `${base} WHERE (LEFT(tally_vbt.insert_date, 10) BETWEEN :date1 AND :date2) AND ${notDeleted} ${typeFilter} ${order}`;
     case "vendorwise":
       return `${base} WHERE tally_vbt.ven_code = :venid AND ${notDeleted} ${typeFilter} ${order}`;
     case "minwise":
