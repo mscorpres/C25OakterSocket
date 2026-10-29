@@ -23,7 +23,6 @@ const VBT_TYPE_MAP = {
   VBT09: "PurchaseC25",
 };
 
-
 const DEFAULT_CONSIGNEE = {
   name: "Riot Labz Private Limited - (FY 26-27)",
   addressLine1: "C-25 Hosiery Complex Phase 2",
@@ -65,12 +64,12 @@ function buildMainQuery(wise, req) {
     FROM tally_vbt
     LEFT JOIN ${global.oakter_db_invt}.components      AS components ON components.component_key  = tally_vbt.part_code
     LEFT JOIN ${global.oakter_db_invt}.products        AS products   ON products.product_key       = tally_vbt.part_code
-    LEFT JOIN tally_ledger                              AS gl          ON gl.ledger_key             = tally_vbt.gl_code
-    LEFT JOIN tally_ledger                              AS cgstLadger  ON cgstLadger.ledger_key     = tally_vbt.vbt_cgst_gl
-    LEFT JOIN tally_ledger                              AS sgstLadger  ON sgstLadger.ledger_key     = tally_vbt.vbt_sgst_gl
-    LEFT JOIN tally_ledger                              AS igstLadger  ON igstLadger.ledger_key     = tally_vbt.vbt_igst_gl
-    LEFT JOIN tally_ledger                              AS tdsLadger   ON tdsLadger.ledger_key      = tally_vbt.tds_gl
-    LEFT JOIN ${global.oakter_db_invt}.ims_currency    AS currency    ON currency.currency_id       = tally_vbt.currency_type
+    LEFT JOIN tally_ledger                             AS gl         ON gl.ledger_key              = tally_vbt.gl_code
+    LEFT JOIN tally_ledger                             AS cgstLadger ON cgstLadger.ledger_key      = tally_vbt.vbt_cgst_gl
+    LEFT JOIN tally_ledger                             AS sgstLadger ON sgstLadger.ledger_key      = tally_vbt.vbt_sgst_gl
+    LEFT JOIN tally_ledger                             AS igstLadger ON igstLadger.ledger_key      = tally_vbt.vbt_igst_gl
+    LEFT JOIN tally_ledger                             AS tdsLadger  ON tdsLadger.ledger_key       = tally_vbt.tds_gl
+    LEFT JOIN ${global.oakter_db_invt}.ims_currency    AS currency   ON currency.currency_id       = tally_vbt.currency_type
   `;
 
   const notDeleted = `tally_vbt.vbt_status != 'DE'`;
@@ -105,11 +104,12 @@ async function batchLoadMinData(rows) {
 
   const sql = `
     SELECT minTable.in_transaction_id   AS min_id,
-           minTable.components_id        AS part_code,
-           minTable.insert_date          AS minDate,
+           minTable.components_id       AS part_code,
+           minTable.insert_date         AS minDate,
            minTable.in_vendor_branch,
-           minTable.in_vendor_name       AS venCode,
-           minTable.rm_loc_cost_center   AS costCentreCode
+           minTable.in_vendor_addr,
+           minTable.in_vendor_name      AS venCode,
+           minTable.rm_loc_cost_center  AS costCentreCode
     FROM ${global.oakter_db_invt}.rm_location AS minTable
     WHERE minTable.trans_type = 'INWARD' AND (minTable.in_transaction_id, minTable.components_id) IN (${pairs.join(",")})
   `;
@@ -137,11 +137,14 @@ async function batchLoadFgMinData(rows, minMap) {
   if (!pairs.length) return new Map();
 
   const sql = `
-    SELECT mfg.mfg_pro_apr_fulldate AS minDate,
-           mfg.mfg_ref_transid_1    AS mfgPoRef,
-           mfg.mfg_cost_center      AS costCentreCode,
+    SELECT mfg.mfg_pro_apr_fulldate    AS minDate,
+           mfg.mfg_ref_transid_1       AS mfgPoRef,
+           mfg.mfg_cost_center         AS costCentreCode,
            mfg.mfg_pro_apr_transaction AS min_id,
-           p.product_key             AS part_code
+           mfg.in_vendor_branch,
+           mfg.in_vendor_addr,
+           mfg.in_vendor_name          AS venCode,
+           p.product_key               AS part_code
     FROM ${global.oakter_db_invt}.mfg_production_3 AS mfg
     INNER JOIN ${global.oakter_db_invt}.products AS p ON mfg.mfg_pro_apr_sku = p.p_sku
     WHERE (mfg.mfg_pro_apr_transaction, p.product_key) IN (${pairs.join(",")})
@@ -179,11 +182,12 @@ async function batchLoadVendorDetails(venIds) {
 
   const venMap = new Map();
   for (const r of allAddresses) {
-    if (!venMap.has(r.ven_id))
-      venMap.set(r.ven_id, { default: null, branches: new Map() });
-    const entry = venMap.get(r.ven_id);
+    const venId = String(r.ven_id).trim();
+    if (!venMap.has(venId))
+      venMap.set(venId, { default: null, branches: new Map() });
+    const entry = venMap.get(venId);
     if (!entry.default) entry.default = r;
-    entry.branches.set(String(r.ven_address_id), r);
+    entry.branches.set(String(r.ven_address_id).trim(), r);
   }
   return venMap;
 }
@@ -247,14 +251,22 @@ function transformRow(row, minMap, venMap, ccMap, poMap, jwMap, shipMap) {
     venState,
     venGSTIN,
     minDate;
+
   if (minData) {
     minDate = moment(minData.minDate).format("DD-MM-YYYY");
-    const venEntry = venMap.get(String(minData.venCode));
+    const lookupVenCode =
+      minData.venCode && minData.venCode !== "--"
+        ? String(minData.venCode).trim()
+        : String(row.ven_code).trim();
+    const venEntry = venMap.get(lookupVenCode);
+
     if (venEntry) {
-      const branchId = minData.in_vendor_branch;
+      const branchId = minData.in_vendor_branch
+        ? String(minData.in_vendor_branch).trim()
+        : "";
       const addr =
         branchId && branchId !== "--" && branchId !== ""
-          ? venEntry.branches.get(String(branchId)) || venEntry.default
+          ? venEntry.branches.get(branchId) || venEntry.default
           : venEntry.default;
       if (addr) {
         venAddress = addr.ven_address?.replaceAll?.("<br>", " ");
@@ -265,8 +277,9 @@ function transformRow(row, minMap, venMap, ccMap, poMap, jwMap, shipMap) {
       }
     }
   }
+
   if (!venAddress && row.ven_code && row.ven_code !== "--") {
-    const venEntry = venMap.get(String(row.ven_code));
+    const venEntry = venMap.get(String(row.ven_code).trim());
     if (venEntry) {
       const addr = venEntry.default;
       if (addr) {
@@ -439,7 +452,7 @@ async function processChunk(rows) {
     if (r.po_number && r.po_number !== "--" && r.po_number !== "")
       poNumbers.add(r.po_number);
     if (r.jw_id && r.jw_id !== "--" && r.jw_id !== "") jwIds.add(r.jw_id);
-    if (r.ven_code && r.ven_code !== "--") venIds.add(String(r.ven_code));
+    if (r.ven_code && r.ven_code !== "--") venIds.add(String(r.ven_code).trim());
   }
 
   const minMap = await batchLoadMinData(rows);
@@ -451,8 +464,12 @@ async function processChunk(rows) {
       const fg = fgMinMap.get(k);
       minMap.set(k, {
         minDate: fg.minDate,
-        venCode: r.ven_code,
-        in_vendor_branch: "--",
+        venCode:
+          fg.venCode && fg.venCode !== "--" && fg.venCode !== ""
+            ? fg.venCode
+            : r.ven_code,
+        in_vendor_branch: fg.in_vendor_branch || "--",
+        in_vendor_addr: fg.in_vendor_addr || "",
         costCentreCode:
           fg.costCentreCode && fg.costCentreCode !== "--"
             ? String(fg.costCentreCode)
@@ -463,7 +480,8 @@ async function processChunk(rows) {
   }
 
   for (const minData of minMap.values()) {
-    if (minData.venCode) venIds.add(String(minData.venCode));
+    if (minData.venCode && minData.venCode !== "--")
+      venIds.add(String(minData.venCode).trim());
     if (minData.costCentreCode && minData.costCentreCode !== "--")
       ccKeys.add(String(minData.costCentreCode));
   }
@@ -650,7 +668,7 @@ exports.vbtReport = async (io, socket) => {
         const ReportHeader = xlsx.utils.json_to_sheet(
           [
             {
-              A: `${userDetails[0].company_name}\n${userDetails[0].company_address}\n${userDetails[0].companey_city} - ${userDetails[0].company_pin_code}\nCIN : ${userDetails[0].company_cin_no}\n'Report Name : GSTR-1'\nReport Date : ${dateDisplay}\n'GSTIN : ' + ${userDetails[0].company_gst_no}`,
+              A: `${userDetails[0].company_name}\n${userDetails[0].company_address}\n${userDetails[0].companey_city}\n${userDetails[0].company_pin_code}\nCIN : ${userDetails[0].company_cin_no}\n'Report Name : GSTR-1'\nReport Date : ${dateDisplay}\n'GSTIN : ' + ${userDetails[0].company_gst_no}`,
             },
           ],
           { skipHeader: true }
