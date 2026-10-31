@@ -372,10 +372,7 @@ async function fetchWeightedRatesBatch(mfgTransactions) {
     
     await Promise.all(chunk.map(async (item) => {
       try {
-        const rate = await require("../../helper/utils").getWeightedPurchaseRate(
-          item.components_id,
-          item.formatted_date
-        );
+        const rate = await require("../../utils/newAvgRate").newWeightedAverageRate(item.components_id, item.formatted_date,item.id);
         weightedRateMap[`${item.components_id}_${item.formatted_date}`] = rate || 0;
       } catch (error) {
         console.error(`Error calculating weighted rate for ${item.components_id}:`, error);

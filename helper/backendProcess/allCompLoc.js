@@ -113,7 +113,7 @@ exports.allCompLocation = async (data, uid, emit_notifications, fileName, notifi
 
         CLOSING = Number(OPENING) + Number(INWARD) - Number(OUTWARD);
 
-        const AVG_RATE = await require("../utils").getWeightedPurchaseRate(comp_stmt[i].component_key, moment(new Date()).format("YYYY-MM-DD HH:mm:ss"));
+        const AVG_RATE = await require("../../utils/newAvgRate").newWeightedAverageRate(comp_stmt[i].component_key, moment(new Date()).format("YYYY-MM-DD HH:mm:ss"));
 
         let tempArr = [date, comp_stmt[i].c_part_no, comp_stmt[i].c_new_part_no, decode(comp_stmt[i].c_name), OPENING, INWARD, OUTWARD, CLOSING, LASTIN, LASTOUT, AVG_RATE];
 
