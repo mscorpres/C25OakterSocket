@@ -303,9 +303,9 @@ exports.r37 = async (io, socket) => {
               openingRate = compAvgRate[stmt_comp_item.jw_bom_part].openingRate;
               closingRate = compAvgRate[stmt_comp_item.jw_bom_part].closingRate;
             } else {
-              openingRate = await require("../../../helper/utils").getWeightedPurchaseRate(stmt_comp_item.jw_bom_part, fromdate);
+              openingRate = await require("../../../utils/newAvgRate").newWeightedAverageRate(stmt_comp_item.jw_bom_part, fromdate);
 
-              closingRate = await require("../../../helper/utils").getWeightedPurchaseRate(stmt_comp_item.jw_bom_part, todate);
+              closingRate = await require("../../../utils/newAvgRate").newWeightedAverageRate(stmt_comp_item.jw_bom_part, todate);
 
               const inwardRate = [];
               const outwardRate = [];
@@ -313,10 +313,10 @@ exports.r37 = async (io, socket) => {
               let fromdate1 = moment(fromdate).format("YYYY-MM-DD");
               const todate1 = moment(todate).format("YYYY-MM-DD");
               while (fromdate1 <= todate1) {
-                const temp = await require("../../../helper/utils").getWeightedPurchaseRate(stmt_comp_item.jw_bom_part, fromdate1);
+                const temp = await require("../../../utils/newAvgRate").newWeightedAverageRate(stmt_comp_item.jw_bom_part, fromdate1);
                 inwardRate.push(temp);
 
-                const temp1 = await require("../../../helper/utils").getWeightedPurchaseRate(stmt_comp_item.jw_bom_part, fromdate1);
+                const temp1 = await require("../../../utils/newAvgRate").newWeightedAverageRate(stmt_comp_item.jw_bom_part, fromdate1);
                 outwardRate.push(temp1);
 
                 // console.log(fromdate1, temp, temp1 , "============================");

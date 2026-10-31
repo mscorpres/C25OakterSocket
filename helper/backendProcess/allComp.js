@@ -337,7 +337,7 @@ async function getBatchAvgRates(componentKeys, toDate) {
   // Use Promise.all to get all rates in parallel instead of sequential
   const ratePromises = componentKeys.map(async (componentKey) => {
     try {
-      const rate = await require("../utils").getWeightedPurchaseRate(componentKey, toDate);
+      const rate = await require("../../utils/newAvgRate").newWeightedAverageRate(componentKey, toDate);
       return { componentKey, rate };
     } catch (error) {
       return { componentKey, rate: 0 };
